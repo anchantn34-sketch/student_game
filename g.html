@@ -1,0 +1,1007 @@
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Hill Rush Adventure</title>
+
+<style>
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  background: #14243a;
+  color: white;
+  font-family: Arial, sans-serif;
+  text-align: center;
+  overflow: hidden;
+}
+
+h1 {
+  padding: 12px;
+  color: #ffdb48;
+  font-size: 25px;
+}
+
+#game {
+  display: block;
+  width: 100%;
+  max-width: 1000px;
+  height: 65vh;
+  min-height: 300px;
+  margin: auto;
+  background: skyblue;
+  border: 3px solid #ffffff;
+  border-radius: 10px;
+}
+
+.hud {
+  display: flex;
+  justify-content: space-around;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 12px;
+  font-weight: bold;
+}
+
+.hud span {
+  color: #ffdc48;
+}
+
+.fuel-container {
+  width: 110px;
+  height: 13px;
+  background: #444;
+  border-radius: 10px;
+  overflow: hidden;
+  display: inline-block;
+}
+
+#fuelBar {
+  width: 100%;
+  height: 100%;
+  background: #38df66;
+}
+
+.controls {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  gap: 25px;
+  padding: 15px;
+}
+
+.controls button {
+  width: 75px;
+  height: 65px;
+  border: 3px solid white;
+  border-radius: 15px;
+  background: #e89c27;
+  color: white;
+  font-size: 28px;
+  font-weight: bold;
+  cursor: pointer;
+  touch-action: none;
+  user-select: none;
+}
+
+.controls button:active {
+  background: #b76a12;
+  transform: scale(.94);
+}
+
+#jump {
+  background: #3194df;
+}
+
+#restart {
+  background: #35a85a;
+  padding: 12px 30px;
+  border: none;
+  border-radius: 10px;
+  color: white;
+  font-weight: bold;
+  font-size: 17px;
+  cursor: pointer;
+  margin-bottom: 10px;
+}
+
+#message {
+  position: fixed;
+  top: 40%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  background: #14243aee;
+  padding: 30px;
+  border: 2px solid #ffdc48;
+  border-radius: 15px;
+  width: min(90%, 350px);
+  z-index: 10;
+}
+
+#message h2 {
+  color: #ffdc48;
+  margin-bottom: 15px;
+}
+
+.hidden {
+  display: none !important;
+}
+
+.instructions {
+  color: #c7d7e7;
+  font-size: 12px;
+  padding: 5px;
+}
+
+@media(max-width:500px) {
+  #game {
+    height: 55vh;
+  }
+
+  .controls {
+    gap: 15px;
+  }
+
+  .controls button {
+    width: 68px;
+    height: 60px;
+  }
+}
+</style>
+</head>
+
+<body>
+
+<h1>🏁 HILL RUSH ADVENTURE</h1>
+
+<div class="hud">
+  <div>🪙 Coins: <span id="coins">0</span></div>
+  <div>📏 Distance: <span id="distance">0</span> m</div>
+  <div>⛽ Fuel: <div class="fuel-container">
+    <div id="fuelBar"></div>
+  </div></div>
+  <div>🏆 Best: <span id="best">0</span> m</div>
+</div>
+
+<canvas id="game"></canvas>
+
+<div class="controls">
+  <button id="left" aria-label="Reverse">◀<small style="display:block;font-size:10px">REVERSE</small></button>
+  <button id="jump" aria-label="Jump">⬆<small style="display:block;font-size:10px">JUMP</small></button>
+  <button id="right" aria-label="Forward">▶<small style="display:block;font-size:10px">FORWARD</small></button>
+</div>
+
+<p class="instructions">
+  Keyboard: ← Reverse | → Forward | ↑ Jump
+</p>
+
+<button id="restart">↻ RESTART GAME</button>
+
+<div id="message" class="hidden">
+  <h2 id="gameResult">GAME OVER!</h2>
+  <p id="resultText">Your adventure has ended.</p>
+  <br>
+  <button id="restart2">PLAY AGAIN</button>
+</div>
+
+<script>
+
+// =====================================
+// CANVAS SETUP
+// =====================================
+
+const canvas = document.getElementById("game");
+const ctx = canvas.getContext("2d");
+
+let W, H;
+
+function resize() {
+  const rect = canvas.getBoundingClientRect();
+  const dpr = Math.min(devicePixelRatio || 1, 2);
+
+  W = rect.width;
+  H = rect.height;
+
+  canvas.width = W * dpr;
+  canvas.height = H * dpr;
+
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+}
+
+window.addEventListener("resize", resize);
+resize();
+
+// =====================================
+// GAME VARIABLES
+// =====================================
+
+let car;
+let camera = 0;
+let coins = 0;
+let distance = 0;
+let fuel = 100;
+let best = Number(localStorage.getItem("hillBest") || 0);
+
+let gameOver = false;
+let lastTime = 0;
+
+let objects = [];
+let particles = [];
+
+let keys = {
+  left: false,
+  right: false,
+  jump: false
+};
+
+document.getElementById("best").textContent = best;
+
+// =====================================
+// SOUND EFFECTS
+// =====================================
+
+let audio;
+
+function sound(freq, duration = 0.15, type = "sine") {
+  try {
+    audio ||= new (
+      window.AudioContext || window.webkitAudioContext
+    )();
+
+    if (audio.state === "suspended") audio.resume();
+
+    const oscillator = audio.createOscillator();
+    const gain = audio.createGain();
+
+    oscillator.type = type;
+    oscillator.frequency.setValueAtTime(freq, audio.currentTime);
+
+    gain.gain.setValueAtTime(0.08, audio.currentTime);
+    gain.gain.exponentialRampToValueAtTime(
+      0.001,
+      audio.currentTime + duration
+    );
+
+    oscillator.connect(gain);
+    gain.connect(audio.destination);
+
+    oscillator.start();
+    oscillator.stop(audio.currentTime + duration);
+
+  } catch(e) {}
+}
+
+function coinSound() {
+  sound(900, .12);
+  setTimeout(() => sound(1200, .12), 80);
+}
+
+function jumpSound() {
+  sound(350, .2);
+}
+
+function fuelSound() {
+  sound(600, .25);
+}
+
+function crashSound() {
+  sound(90, .5, "sawtooth");
+}
+
+// =====================================
+// TERRAIN
+// =====================================
+
+function ground(x) {
+  return H * .70
+    + Math.sin(x * .008) * 35
+    + Math.sin(x * .018) * 18
+    + Math.sin(x * .003) * 40;
+}
+
+function drawTerrain() {
+  ctx.beginPath();
+
+  ctx.moveTo(0, H);
+
+  for (let x = 0; x <= W + 10; x += 5) {
+    ctx.lineTo(x, ground(x + camera));
+  }
+
+  ctx.lineTo(W, H);
+  ctx.closePath();
+
+  let grass = ctx.createLinearGradient(0, H * .6, 0, H);
+  grass.addColorStop(0, "#65bd39");
+  grass.addColorStop(1, "#28632b");
+
+  ctx.fillStyle = grass;
+  ctx.fill();
+
+  ctx.strokeStyle = "#347e2c";
+  ctx.lineWidth = 5;
+  ctx.stroke();
+}
+
+// =====================================
+// BACKGROUND
+// =====================================
+
+function drawBackground() {
+
+  let sky = ctx.createLinearGradient(0, 0, 0, H);
+
+  sky.addColorStop(0, "#42b8ef");
+  sky.addColorStop(1, "#c5f1ff");
+
+  ctx.fillStyle = sky;
+  ctx.fillRect(0, 0, W, H);
+
+  // Sun
+
+  ctx.fillStyle = "#fff1a1";
+  ctx.beginPath();
+  ctx.arc(W - 80, 65, 35, 0, Math.PI * 2);
+  ctx.fill();
+
+  // Mountains
+
+  ctx.fillStyle = "#86b4a0";
+
+  ctx.beginPath();
+  ctx.moveTo(0, H * .7);
+
+  for (let x = 0; x <= W + 10; x += 40) {
+    let y = H * .48 +
+      Math.sin((x + camera * .2) * .009) * 35;
+
+    ctx.lineTo(x, y);
+  }
+
+  ctx.lineTo(W, H);
+  ctx.lineTo(0, H);
+  ctx.fill();
+
+  // Clouds
+
+  for (let i = 0; i < 4; i++) {
+    let x = ((i * 240 - camera * .15) % (W + 100) + W + 100) % (W + 100);
+
+    ctx.fillStyle = "white";
+    ctx.beginPath();
+    ctx.arc(x, 80, 20, 0, Math.PI * 2);
+    ctx.arc(x + 25, 75, 25, 0, Math.PI * 2);
+    ctx.arc(x + 50, 80, 20, 0, Math.PI * 2);
+    ctx.fill();
+  }
+}
+
+// =====================================
+// CAR CREATION
+// =====================================
+
+function resetCar() {
+
+  car = {
+    x: 100,
+    y: ground(100) - 30,
+    vx: 0,
+    vy: 0,
+    angle: 0,
+    onGround: true,
+    wheelSpin: 0
+  };
+
+}
+
+// =====================================
+// OBJECT GENERATION
+// =====================================
+
+function generateObjects() {
+
+  objects = [];
+
+  // Coins
+
+  for (let i = 0; i < 100; i++) {
+
+    let x = 350 + i * 180;
+
+    objects.push({
+      type: "coin",
+      x: x,
+      y: ground(x) - 65,
+      collected: false
+    });
+
+  }
+
+  // Fuel cans
+
+  for (let i = 0; i < 30; i++) {
+
+    let x = 900 + i * 650;
+
+    objects.push({
+      type: "fuel",
+      x: x,
+      y: ground(x) - 55,
+      collected: false
+    });
+
+  }
+
+  // Stone obstacles
+
+  for (let i = 0; i < 80; i++) {
+
+    let x = 600 + i * 250;
+
+    objects.push({
+      type: "stone",
+      x: x,
+      y: ground(x) - 15,
+      collected: false
+    });
+
+  }
+
+}
+
+// =====================================
+// DRAW OBJECTS
+// =====================================
+
+function drawObjects() {
+
+  objects.forEach(o => {
+
+    if (o.collected) return;
+
+    let x = o.x - camera;
+    let y = ground(o.x) - (o.type === "coin" ? 65 :
+                          o.type === "fuel" ? 55 : 0);
+
+    if (x < -40 || x > W + 40) return;
+
+    if (o.type === "coin") {
+
+      ctx.fillStyle = "#ffcf24";
+
+      ctx.beginPath();
+      ctx.arc(x, y, 11, 0, Math.PI * 2);
+      ctx.fill();
+
+      ctx.strokeStyle = "#bd8314";
+      ctx.lineWidth = 3;
+      ctx.stroke();
+
+      ctx.fillStyle = "#fff5ad";
+      ctx.font = "bold 13px Arial";
+      ctx.textAlign = "center";
+      ctx.fillText("$", x, y + 5);
+
+    }
+
+    if (o.type === "fuel") {
+
+      ctx.fillStyle = "#e83e35";
+      ctx.fillRect(x - 11, y - 14, 22, 28);
+
+      ctx.fillStyle = "white";
+      ctx.font = "bold 15px Arial";
+      ctx.textAlign = "center";
+      ctx.fillText("F", x, y + 5);
+
+      ctx.fillStyle = "#333";
+      ctx.fillRect(x - 5, y - 19, 10, 5);
+
+    }
+
+    if (o.type === "stone") {
+
+      ctx.fillStyle = "#626b76";
+
+      ctx.beginPath();
+      ctx.moveTo(x - 17, y);
+      ctx.lineTo(x - 13, y - 16);
+      ctx.lineTo(x + 3, y - 24);
+      ctx.lineTo(x + 18, y - 12);
+      ctx.lineTo(x + 18, y);
+      ctx.closePath();
+      ctx.fill();
+
+      ctx.strokeStyle = "#39424e";
+      ctx.lineWidth = 2;
+      ctx.stroke();
+
+    }
+
+  });
+
+}
+
+// =====================================
+// DRAW CAR
+// =====================================
+
+function drawCar() {
+
+  let x = car.x - camera;
+  let y = car.y;
+
+  ctx.save();
+
+  ctx.translate(x, y);
+  ctx.rotate(car.angle);
+
+  // Body
+
+  ctx.fillStyle = "#ed493b";
+
+  ctx.beginPath();
+  ctx.roundRect(-36, -24, 73, 29, 7);
+  ctx.fill();
+
+  // Roof
+
+  ctx.fillStyle = "#ffca48";
+
+  ctx.beginPath();
+  ctx.moveTo(-19, -24);
+  ctx.lineTo(-10, -43);
+  ctx.lineTo(18, -43);
+  ctx.lineTo(28, -24);
+  ctx.fill();
+
+  // Window
+
+  ctx.fillStyle = "#8ee1ff";
+  ctx.fillRect(-6, -39, 17, 13);
+
+  // Wheels
+
+  [-23, 24].forEach(wx => {
+
+    ctx.save();
+    ctx.translate(wx, 7);
+    ctx.rotate(car.wheelSpin);
+
+    ctx.fillStyle = "#222";
+
+    ctx.beginPath();
+    ctx.arc(0, 0, 12, 0, Math.PI * 2);
+    ctx.fill();
+
+    ctx.strokeStyle = "#aaa";
+    ctx.lineWidth = 3;
+
+    ctx.beginPath();
+    ctx.arc(0, 0, 6, 0, Math.PI * 2);
+    ctx.stroke();
+
+    ctx.restore();
+
+  });
+
+  ctx.restore();
+
+}
+
+// =====================================
+// PARTICLES
+// =====================================
+
+function createParticles(x, y, color) {
+
+  for (let i = 0; i < 8; i++) {
+
+    particles.push({
+      x,
+      y,
+      vx: (Math.random() - .5) * 100,
+      vy: -Math.random() * 100,
+      life: .6,
+      color
+    });
+
+  }
+
+}
+
+function drawParticles(dt) {
+
+  particles.forEach(p => {
+
+    p.x += p.vx * dt;
+    p.y += p.vy * dt;
+    p.vy += 150 * dt;
+    p.life -= dt;
+
+    ctx.globalAlpha = Math.max(0, p.life);
+
+    ctx.fillStyle = p.color;
+    ctx.beginPath();
+    ctx.arc(p.x - camera, p.y, 4, 0, Math.PI * 2);
+    ctx.fill();
+
+  });
+
+  ctx.globalAlpha = 1;
+
+  particles = particles.filter(p => p.life > 0);
+
+}
+
+// =====================================
+// UPDATE GAME
+// =====================================
+
+function update(dt) {
+
+  if (gameOver) return;
+
+  const oldX = car.x;
+
+  // FORWARD CONTROL
+
+  if (keys.right) {
+    car.vx += 300 * dt;
+    fuel -= 2.5 * dt;
+  }
+
+  // REVERSE CONTROL
+
+  if (keys.left) {
+    car.vx -= 350 * dt;
+    fuel -= 1.5 * dt;
+  }
+
+  // SPEED LIMIT
+
+  car.vx = Math.max(-140, Math.min(350, car.vx));
+
+  // FRICTION
+
+  car.vx *= Math.pow(.985, dt * 60);
+
+  car.x += car.vx * dt;
+
+  // Prevent going behind starting position
+
+  car.x = Math.max(100, car.x);
+
+  // JUMP CONTROL
+
+  if (keys.jump && car.onGround) {
+
+    car.vy = -440;
+    car.onGround = false;
+
+    jumpSound();
+
+  }
+
+  // GRAVITY
+
+  car.vy += 1000 * dt;
+  car.y += car.vy * dt;
+
+  // GROUND COLLISION
+
+  const g = ground(car.x);
+
+  if (car.y + 25 >= g) {
+
+    car.y = g - 25;
+    car.vy = 0;
+    car.onGround = true;
+
+  } else {
+
+    car.onGround = false;
+
+  }
+
+  // HILL ANGLE
+
+  const slope = Math.atan2(
+    ground(car.x + 10) - ground(car.x - 10),
+    20
+  );
+
+  car.angle += (slope - car.angle) * Math.min(1, dt * 7);
+
+  car.wheelSpin += car.vx * dt / 15;
+
+  // CAMERA FOLLOW
+
+  camera += (car.x - camera - W * .28) * dt * 4;
+
+  // =================================
+  // COLLECT COINS, FUEL AND OBSTACLES
+  // =================================
+
+  objects.forEach(o => {
+
+    if (o.collected) return;
+
+    let dx = Math.abs(car.x - o.x);
+    let dy = Math.abs(car.y - o.y);
+
+    // COIN COLLECTION
+
+    if (o.type === "coin" && dx < 32 && dy < 65) {
+
+      o.collected = true;
+      coins++;
+
+      coinSound();
+
+      createParticles(o.x, o.y, "#ffdc38");
+
+      document.getElementById("coins").textContent = coins;
+
+    }
+
+    // FUEL COLLECTION
+
+    if (o.type === "fuel" && dx < 32 && dy < 65) {
+
+      o.collected = true;
+
+      fuel = Math.min(100, fuel + 35);
+
+      fuelSound();
+
+      createParticles(o.x, o.y, "#45ef78");
+
+    }
+
+    // STONE COLLISION
+
+    if (o.type === "stone" && dx < 32 &&
+        Math.abs(car.y - (ground(o.x) - 15)) < 40) {
+
+      // A stone hit causes a crash.
+      o.collected = true;
+      crashSound();
+      createParticles(car.x, car.y, "#aaa");
+      endGame("CRASHED INTO A STONE!");
+
+    }
+
+  });
+
+  // FUEL
+
+  fuel = Math.max(0, fuel);
+
+  if (fuel <= 0) {
+    endGame("OUT OF FUEL!");
+  }
+
+  // DISTANCE
+
+  distance = Math.max(0, Math.floor((car.x - 100) / 10));
+
+  // HUD
+
+  document.getElementById("distance").textContent = distance;
+
+  document.getElementById("fuelBar").style.width =
+    fuel + "%";
+
+  document.getElementById("fuelBar").style.background =
+    fuel < 25 ? "#ff3838" : "#38df66";
+
+  // CRASH IF CAR FLIPS
+
+  if (Math.abs(car.angle) > 2.2) {
+    endGame("YOUR CAR FLIPPED!");
+  }
+
+}
+
+// =====================================
+// DRAW EVERYTHING
+// =====================================
+
+function draw(dt) {
+
+  ctx.clearRect(0, 0, W, H);
+
+  drawBackground();
+  drawTerrain();
+  drawObjects();
+  drawParticles(dt);
+  drawCar();
+
+}
+
+// =====================================
+// GAME OVER
+// =====================================
+
+function endGame(reason) {
+
+  if (gameOver) return;
+
+  gameOver = true;
+
+  keys.left = false;
+  keys.right = false;
+  keys.jump = false;
+
+  best = Math.max(best, distance);
+
+  localStorage.setItem("hillBest", best);
+
+  document.getElementById("best").textContent = best;
+
+  document.getElementById("gameResult").textContent = "🏁 GAME OVER";
+
+  document.getElementById("resultText").textContent =
+    reason + " Distance: " + distance + " m | Coins: " + coins;
+
+  document.getElementById("message").classList.remove("hidden");
+
+}
+
+// =====================================
+// GAME LOOP
+// =====================================
+
+function loop(time) {
+
+  if (gameOver) return;
+
+  const dt = Math.min((time - lastTime) / 1000, .04);
+  lastTime = time;
+
+  update(dt);
+  draw(dt);
+
+  requestAnimationFrame(loop);
+
+}
+
+// =====================================
+// START / RESTART
+// =====================================
+
+function startGame() {
+
+  gameOver = false;
+
+  coins = 0;
+  distance = 0;
+  fuel = 100;
+  camera = 0;
+
+  particles = [];
+
+  keys.left = false;
+  keys.right = false;
+  keys.jump = false;
+
+  resetCar();
+  generateObjects();
+
+  document.getElementById("coins").textContent = 0;
+  document.getElementById("distance").textContent = 0;
+  document.getElementById("fuelBar").style.width = "100%";
+
+  document.getElementById("message").classList.add("hidden");
+
+  lastTime = performance.now();
+
+  requestAnimationFrame(loop);
+
+}
+
+// =====================================
+// BUTTON CONTROLS
+// =====================================
+
+function bindButton(id, key) {
+
+  const button = document.getElementById(id);
+
+  button.addEventListener("pointerdown", e => {
+    e.preventDefault();
+
+    if (gameOver) return;
+
+    keys[key] = true;
+    button.setPointerCapture(e.pointerId);
+  });
+
+  function release(e) {
+    e.preventDefault();
+    keys[key] = false;
+  }
+
+  button.addEventListener("pointerup", release);
+  button.addEventListener("pointercancel", release);
+
+  button.addEventListener("lostpointercapture", () => {
+    keys[key] = false;
+  });
+
+}
+
+bindButton("left", "left");
+bindButton("right", "right");
+bindButton("jump", "jump");
+
+// =====================================
+// KEYBOARD CONTROLS
+// =====================================
+
+window.addEventListener("keydown", e => {
+
+  if (["ArrowLeft", "ArrowRight", "ArrowUp"].includes(e.key)) {
+    e.preventDefault();
+  }
+
+  if (e.key === "ArrowLeft" || e.key.toLowerCase() === "a") {
+    keys.left = true;
+  }
+
+  if (e.key === "ArrowRight" || e.key.toLowerCase() === "d") {
+    keys.right = true;
+  }
+
+  if (e.key === "ArrowUp" || e.key === " ") {
+    keys.jump = true;
+  }
+
+});
+
+window.addEventListener("keyup", e => {
+
+  if (e.key === "ArrowLeft" || e.key.toLowerCase() === "a") {
+    keys.left = false;
+  }
+
+  if (e.key === "ArrowRight" || e.key.toLowerCase() === "d") {
+    keys.right = false;
+  }
+
+  if (e.key === "ArrowUp" || e.key === " ") {
+    keys.jump = false;
+  }
+
+});
+
+window.addEventListener("blur", () => {
+  keys.left = false;
+  keys.right = false;
+  keys.jump = false;
+});
+
+// =====================================
+// RESTART BUTTONS
+// =====================================
+
+document.getElementById("restart").onclick = startGame;
+document.getElementById("restart2").onclick = startGame;
+
+// =====================================
+// INITIALIZE
+// =====================================
+
+startGame();
+
+</script>
+
+</body>
+</html>
